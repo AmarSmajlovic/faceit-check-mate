@@ -1,0 +1,23 @@
+{
+  "name": "faceit-checkmate",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/background.ts --outdir=public --target=browser && bun build src/content.ts --outdir=public --target=browser && bun build src/popup.ts --outdir=public --target=browser"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/chrome": "^0.0.289",
+    "@types/node": "^22.10.5",
+    "@types/webextension-polyfill": "^0.12.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "date-fns": "^4.1.0",
+    "p-memoize": "^7.1.1",
+    "p-retry": "^6.2.1",
+    "webextension-polyfill": "^0.12.0"
+  }
+}
