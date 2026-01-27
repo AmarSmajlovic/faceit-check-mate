@@ -1,7 +1,6 @@
 import pMemoize from "p-memoize";
 import browser from "webextension-polyfill";
 import type { Match } from "../types";
-import { format } from "date-fns";
 
 const CACHE_TIME = 60000;
 // "1-0cee0491-61b0-4c8c-9740-cf0ca71579ac"
@@ -20,8 +19,8 @@ export const getPlayerMatches = (
 
 export const getPlayerByNickname = (
   nickname: string
-): Promise<Match[] | null> =>
-  fetchAPIMemoized<Match[]>(`/users/v1/nicknames/${nickname}`);
+): Promise<any | null> =>
+  fetchAPIMemoized<any>(`/users/v1/nicknames/${nickname}`);
 
 const playerMatchResults: {
   [playerId: string]: {
@@ -35,9 +34,9 @@ export const fetchAllMatches = async (
   game: string,
   playerId: string,
   matchLimit: number = 4000,
-  recursionLimit: number = 30,
+  recursionLimit: number = 100, // Increased to go further back in history
   recursionLevel: number = 0,
-  to: number = Date.now() - 10 * 24 * 60 * 60 * 1000 // Default to 10 days ago
+  to: number = Date.now()
 ): Promise<Match[]> => {
   // If results are already fully fetched, return them
   if (playerMatchResults[playerId]?.fetched) {
@@ -71,7 +70,7 @@ export const fetchAllMatches = async (
     const matches = await getPlayerMatches(game, playerId, to);
 
     // If matches are returned and are not empty, process and add to the specific player's match array
-    if (matches && matches.length > 0) {
+    if (Array.isArray(matches) && matches.length > 0) {
       // Use a Set to track unique matchIds
       const matchIds = new Set(
         matchResult.matches.map((match) => match.matchId)
@@ -79,8 +78,8 @@ export const fetchAllMatches = async (
 
       // Filter out duplicates from the current matchResult
       const filteredMatches = matches.filter((match) => {
-        if (matchIds.has(match.matchId)) {
-          return false; // Skip duplicates
+        if (!match || !match.matchId || matchIds.has(match.matchId)) {
+          return false; // Skip duplicates or invalid matches
         }
         matchIds.add(match.matchId); // Add the matchId to the Set
         return true;
@@ -90,7 +89,13 @@ export const fetchAllMatches = async (
       matchResult.matches = matchResult.matches.concat(filteredMatches);
 
       // Get the timestamp of the last match's date
-      const lastMatchDate = matches[matches.length - 1].date;
+      const lastMatch = matches[matches.length - 1];
+      const lastMatchDate = lastMatch?.date;
+
+      if (!lastMatchDate || filteredMatches.length === 0) {
+        matchResult.fetched = true;
+        return matchResult.matches;
+      }
 
       // Continue the process recursively with the new "to" date
       return fetchAllMatches(
@@ -109,75 +114,9 @@ export const fetchAllMatches = async (
     }
   } catch (error) {
     console.error(`Error fetching matches for player ${playerId}:`, error);
-    throw error;
+    return []; // Return empty instead of throwing to prevent global Error state
   }
 };
-
-// export const getPlayerHistory = async (playerId: string, page = 0) => {
-//   const size = 50;
-//   const offset = 0;
-//   const from = encodeURIComponent("1970-01-01T01:00:00+0000");
-//   const to = encodeURIComponent(
-//     format(new Date(), `yyyy-MM-dd'T'HH:mm:ss'+0000'`)
-//   );
-
-//   return fetchAPIMemoized(
-//     `/match-history/v5/players/${playerId}/history/?from=${from}&to=${to}&page=${page}&size=${size}&offset=${offset}`
-//   );
-// };
-
-// const recursionLimit = 10;
-// const matchesResults = {} as any;
-
-// const getMatchHistory = async (
-//   playerId: string,
-//   totalMatches = 1000,
-//   recursionLevel = 0
-// ) => {
-//   if (recursionLevel >= recursionLimit) {
-//     throw new Error("Maximum recursion depth reached");
-//   }
-
-//   if (!matchesResults[playerId]) {
-//     matchesResults[playerId] = {
-//       page: -1,
-//       matches: [],
-//       pageRequests: {},
-//     };
-//   }
-
-//   const matchResult = matchesResults[playerId];
-
-//   if (matchResult.matches.length >= totalMatches) {
-//     return matchResult.matches;
-//   }
-//   const nextPage = matchResult.page + 1;
-
-//   if (matchResult.pageRequests[nextPage]) {
-//     return matchResult.pageRequests[nextPage];
-//   }
-
-//   const getPagePromise = async () => {
-//     try {
-//       const matches = await getPlayerHistory(playerId, nextPage);
-
-//       matchResult.page = nextPage;
-//       matchResult.matches = matchResult.matches.concat(matches);
-
-//       return getMatchHistory(playerId, totalMatches, recursionLevel + 1);
-//     } catch (error) {
-//       console.error(error);
-
-//       throw error;
-//     }
-//   };
-
-//   matchResult.pageRequests[nextPage] = getPagePromise;
-
-//   return getPagePromise;
-// };
-
-// export default getMatchHistory;
 
 /**
  * Base function to fetch API data

@@ -1354,7 +1354,7 @@ var faceitAPI = async (path, token = undefined) => {
     return json;
   } catch (err) {
     console.error("Error fetching from FACEIT API:", err);
-    return;
+    return null;
   }
 };
 

@@ -3,36 +3,38 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Extension Popup</title>
+  <title>FACEIT Check Mat</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 0;
-      padding: 10px;
-      width: 200px;
+      width: 300px;
+      background-color: rgb(29, 29, 29);
+      box-sizing: border-box;
+      padding: 16px 24px;
+      border-radius: 2px;
+      color: rgb(167, 167, 167);
+      height: "auto";
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      flex-direction: column;
+      -webkit-box-align: center;
+      align-items: center;
     }
-
-    button {
-      padding: 10px 15px;
-      font-size: 14px;
-      cursor: pointer;
-      border: none;
-      background-color: #007bff;
-      color: white;
-      border-radius: 5px;
-    }
-
-    button:hover {
-      background-color: #0056b3;
-    }
+  
   </style>
 </head>
 <body>
-  <h1>My Extension</h1>
-  <p>Welcome to the extension popup!</p>
-  <button id="actionButton">Click Me</button>
-  <div id="response"></div>
-
-  <script src="popup.js"></script>
+  <h3>FACEIT Check Mate</h3>
+  <p>
+    This extension enhances FACEIT notifications for banned users by adding a button to redirect you to common matches played with the banned player.
+  </p>
+  <p>
+    For more information, visit the 
+    <a href="https://chrome.google.com/webstore/detail/faceit-check-mate" target="_blank">
+      extension page
+    </a>.
+  </p>
 </body>
 </html>

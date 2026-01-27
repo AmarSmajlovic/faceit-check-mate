@@ -49,6 +49,6 @@ export const faceitAPI = async (
     return json;
   } catch (err) {
     console.error("Error fetching from FACEIT API:", err);
-    return;
+    return null;
   }
 };

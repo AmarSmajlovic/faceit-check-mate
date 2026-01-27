@@ -1,7 +1,5 @@
-import { fetchAllMatches, getPlayerMatches } from "./http";
+import { fetchAllMatches, getPlayerByNickname } from "./http";
 import { findCommonMatches, getCurrentUserId } from "./utils/user";
-
-import { getPlayerByNickname } from "./http";
 
 const checkPlayerMatches = async (id: string) => {
   try {
@@ -106,11 +104,19 @@ const observer = new MutationObserver(async () => {
         try {
           // Call the API to get the banned player details
           const bannedUser = await getPlayerByNick(nickName);
-          console.log(bannedUser.id); // Log the banned user's ID
+          
+          if (!bannedUser || !bannedUser.id) {
+            console.error("Could not find banned user or ID for:", nickName);
+            button.textContent = "User Not Found";
+            button.disabled = true;
+            return;
+          }
+
+          console.log("Banned User ID:", bannedUser.id);
 
           // Fetch common matches (this may take some time)
           const commonMatches = await checkAndCompareMatches(bannedUser.id);
-          console.log("commonMatches:", commonMatches); // Log commonMatches object
+          console.log("Common matches found:", commonMatches);
 
           // Ensure commonMatches is not empty and contains a valid matchId
           const commonMatchId = commonMatches?.[0]?.matchId;
@@ -127,13 +133,13 @@ const observer = new MutationObserver(async () => {
             };
           } else {
             // If no matches were found, update the button accordingly
-            console.log("No matches found for this user");
+            console.log("No common matches found for user:", nickName);
             button.textContent = "No Matches Found";
             button.disabled = true;
           }
         } catch (error) {
           // If there's an error in fetching matches, handle it
-          console.error("Error fetching common matches:", error);
+          console.error("Error processing notification for", nickName, ":", error);
           button.textContent = "Error";
           button.disabled = true;
         }

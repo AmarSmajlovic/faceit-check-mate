@@ -1091,7 +1091,7 @@ var CACHE_TIME = 60000;
 var getPlayerMatches = (game, playerId, to) => fetchAPIMemoized(`/stats/v1/stats/time/users/${playerId}/games/${game}?to=${to}`);
 var getPlayerByNickname = (nickname) => fetchAPIMemoized(`/users/v1/nicknames/${nickname}`);
 var playerMatchResults = {};
-var fetchAllMatches = async (game, playerId, matchLimit = 4000, recursionLimit = 30, recursionLevel = 0, to = Date.now() - 10 * 24 * 60 * 60 * 1000) => {
+var fetchAllMatches = async (game, playerId, matchLimit = 4000, recursionLimit = 100, recursionLevel = 0, to = Date.now()) => {
   if (playerMatchResults[playerId]?.fetched) {
     console.log(`Returning cached results for player ${playerId}`);
     return playerMatchResults[playerId].matches;
@@ -1112,17 +1112,22 @@ var fetchAllMatches = async (game, playerId, matchLimit = 4000, recursionLimit =
   }
   try {
     const matches = await getPlayerMatches(game, playerId, to);
-    if (matches && matches.length > 0) {
+    if (Array.isArray(matches) && matches.length > 0) {
       const matchIds = new Set(matchResult.matches.map((match) => match.matchId));
       const filteredMatches = matches.filter((match) => {
-        if (matchIds.has(match.matchId)) {
+        if (!match || !match.matchId || matchIds.has(match.matchId)) {
           return false;
         }
         matchIds.add(match.matchId);
         return true;
       });
       matchResult.matches = matchResult.matches.concat(filteredMatches);
-      const lastMatchDate = matches[matches.length - 1].date;
+      const lastMatch = matches[matches.length - 1];
+      const lastMatchDate = lastMatch?.date;
+      if (!lastMatchDate || filteredMatches.length === 0) {
+        matchResult.fetched = true;
+        return matchResult.matches;
+      }
       return fetchAllMatches(game, playerId, matchLimit, recursionLimit, recursionLevel + 1, lastMatchDate);
     } else {
       console.log(`No more matches available for player ${playerId}`);
@@ -1131,7 +1136,7 @@ var fetchAllMatches = async (game, playerId, matchLimit = 4000, recursionLimit =
     }
   } catch (error) {
     console.error(`Error fetching matches for player ${playerId}:`, error);
-    throw error;
+    return [];
   }
 };
 var fetchAPI = async (path) => {
@@ -1156,33 +1161,46 @@ var fetchAPIMemoized = pMemoize(fetchAPI, {
 
 // src/utils/user.ts
 var getCurrentUserId = () => {
-  const legacyId = JSON.parse(localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER"))?.value?.currentUser?.id;
-  if (legacyId) {
-    return legacyId;
-  }
-  const auth = JSON.parse(localStorage.getItem("prefetched-auth"));
-  if (auth) {
-    return auth?.session?.entity?.id;
-  }
-  for (const key in localStorage) {
-    const isId1 = key.includes("ab.storage.userId.");
-    const isId2 = key.includes("ab.storage.attributes.");
-    const isId3 = key.includes("ab.storage.events.");
-    let id = null;
-    if (isId1) {
-      id = JSON.parse(localStorage[key])?.v?.g;
-    } else if (isId2) {
-      id = Object.keys(JSON.parse(localStorage[key])?.v || {})?.[0];
-    } else if (isId3) {
-      id = JSON.parse(localStorage[key])?.v?.[0]?.u;
+  try {
+    const legacyData = localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER");
+    if (legacyData) {
+      const legacyId = JSON.parse(legacyData)?.value?.currentUser?.id;
+      if (legacyId)
+        return legacyId;
     }
-    if (id) {
-      return id;
+    const authData = localStorage.getItem("prefetched-auth");
+    if (authData) {
+      const auth = JSON.parse(authData);
+      if (auth?.session?.entity?.id)
+        return auth.session.entity.id;
     }
-  }
-  const betaId = _getBetaUserId();
-  if (betaId) {
-    return betaId;
+    for (const key in localStorage) {
+      try {
+        const isId1 = key.includes("ab.storage.userId.");
+        const isId2 = key.includes("ab.storage.attributes.");
+        const isId3 = key.includes("ab.storage.events.");
+        let id = null;
+        const item = localStorage.getItem(key);
+        if (!item)
+          continue;
+        if (isId1) {
+          id = JSON.parse(item)?.v?.g;
+        } else if (isId2) {
+          id = Object.keys(JSON.parse(item)?.v || {})?.[0];
+        } else if (isId3) {
+          id = JSON.parse(item)?.v?.[0]?.u;
+        }
+        if (id)
+          return id;
+      } catch (e) {
+        continue;
+      }
+    }
+    const betaId = _getBetaUserId();
+    if (betaId)
+      return betaId;
+  } catch (error) {
+    console.error("Error getting current user ID:", error);
   }
   return null;
 };
@@ -1195,8 +1213,11 @@ var _getBetaUserId = () => {
   }
 };
 var findCommonMatches = (matches1, matches2) => {
-  const matchIds1 = new Set(matches1.map((match) => match._id.matchId));
-  return matches2.filter((match) => matchIds1.has(match._id.matchId));
+  if (!Array.isArray(matches1) || !Array.isArray(matches2)) {
+    return [];
+  }
+  const matchIds1 = new Set(matches1.map((match) => match.matchId || match._id?.matchId));
+  return matches2.filter((match) => matchIds1.has(match.matchId || match._id?.matchId));
 };
 
 // src/content.ts
@@ -1272,9 +1293,15 @@ var observer = new MutationObserver(async () => {
         bodyElement?.insertAdjacentElement("beforeend", button);
         try {
           const bannedUser = await getPlayerByNick(nickName);
-          console.log(bannedUser.id);
+          if (!bannedUser || !bannedUser.id) {
+            console.error("Could not find banned user or ID for:", nickName);
+            button.textContent = "User Not Found";
+            button.disabled = true;
+            return;
+          }
+          console.log("Banned User ID:", bannedUser.id);
           const commonMatches = await checkAndCompareMatches(bannedUser.id);
-          console.log("commonMatches:", commonMatches);
+          console.log("Common matches found:", commonMatches);
           const commonMatchId = commonMatches?.[0]?.matchId;
           if (commonMatchId) {
             const hrefLink = `https://www.faceit.com/en/cs2/room/${commonMatchId}`;
@@ -1284,12 +1311,12 @@ var observer = new MutationObserver(async () => {
               window.open(hrefLink, "_blank");
             };
           } else {
-            console.log("No matches found for this user");
+            console.log("No common matches found for user:", nickName);
             button.textContent = "No Matches Found";
             button.disabled = true;
           }
         } catch (error) {
-          console.error("Error fetching common matches:", error);
+          console.error("Error processing notification for", nickName, ":", error);
           button.textContent = "Error";
           button.disabled = true;
         }
