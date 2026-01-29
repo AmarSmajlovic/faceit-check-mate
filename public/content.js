@@ -1208,6 +1208,25 @@ var fetchAPIMemoized = pMemoize(fetchAPI, {
 });
 
 // src/content.ts
+var style = document.createElement("style");
+style.textContent = `
+  @keyframes checkmate-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  .checkmate-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: checkmate-spin 1s ease-in-out infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+`;
+document.head.appendChild(style);
 var checkPlayerMatches = async (id) => {
   try {
     if (!id)
@@ -1217,27 +1236,20 @@ var checkPlayerMatches = async (id) => {
     return null;
   }
 };
-var checkAndCompareMatches = async (bannedUserId, nickName, onUpdate) => {
+var checkAndCompareMatches = async (bannedUserId, nickName) => {
   try {
     const auth = getAuthInfo();
     if (!auth.id)
-      return "NOT_LOGGED_IN";
-    if (onUpdate)
-      onUpdate("Fetching Your History...");
+      return "ERROR";
     const currentPlayerMatches = await checkPlayerMatches(auth.id);
     if (!currentPlayerMatches)
-      return "MY_HISTORY_ERROR";
-    if (onUpdate)
-      onUpdate("Searching Their History...");
+      return "ERROR";
     const bannedPlayerMatches = await checkPlayerMatches(bannedUserId);
     if (!bannedPlayerMatches)
-      return "BANNED_HISTORY_ERROR";
-    if (onUpdate)
-      onUpdate("Comparing Matches...");
-    const common = findCommonMatches(currentPlayerMatches, bannedPlayerMatches);
-    return common;
+      return "ERROR";
+    return findCommonMatches(currentPlayerMatches, bannedPlayerMatches);
   } catch (error) {
-    return "UNKNOWN_ERROR";
+    return "ERROR";
   }
 };
 var getPlayerByNick = async (nick) => {
@@ -1260,54 +1272,57 @@ var observer = new MutationObserver(async () => {
         return;
       element.setAttribute("data-processed", "true");
       const button = document.createElement("button");
-      button.textContent = "Checking...";
+      button.innerHTML = '<span class="checkmate-spinner"></span>Searching...';
       button.style.borderRadius = "4px";
       button.style.height = "32px";
-      button.style.padding = "8px 24px";
+      button.style.padding = "8px 16px";
       button.style.border = "none";
       button.style.fontWeight = "bold";
       button.style.color = "white";
       button.style.cursor = "pointer";
       button.style.textTransform = "uppercase";
-      button.style.backgroundColor = "rgb(255, 85, 0)";
+      button.style.backgroundColor = "rgb(100, 100, 100)";
+      button.style.display = "flex";
+      button.style.alignItems = "center";
+      button.style.justifyContent = "center";
       button.disabled = true;
       button.style.marginTop = "10px";
+      button.style.fontSize = "11px";
       button.addEventListener("mouseover", () => {
-        button.style.backgroundColor = "rgb(255, 120, 60)";
+        if (!button.disabled)
+          button.style.backgroundColor = "rgb(255, 120, 60)";
       });
       button.addEventListener("mouseout", () => {
-        button.style.backgroundColor = "rgb(255, 85, 0)";
+        if (!button.disabled)
+          button.style.backgroundColor = "rgb(255, 85, 0)";
       });
       bodyElement?.insertAdjacentElement("beforeend", button);
       try {
         const bannedUser = await getPlayerByNick(nickName);
         if (!bannedUser || !bannedUser.id) {
-          button.textContent = "User Not Found";
+          button.innerHTML = "Check Failed";
+          button.style.backgroundColor = "rgb(60, 60, 60)";
           return;
         }
-        const result = await checkAndCompareMatches(bannedUser.id, nickName, (text) => {
-          button.textContent = text;
-        });
-        if (result === "NOT_LOGGED_IN") {
-          button.textContent = "Log in to Faceit";
-        } else if (result === "MY_HISTORY_ERROR") {
-          button.textContent = "History Error";
-        } else if (result === "BANNED_HISTORY_ERROR") {
-          button.textContent = "User Private/Deleted";
-        } else if (result === "UNKNOWN_ERROR") {
-          button.textContent = "API Error";
+        const result = await checkAndCompareMatches(bannedUser.id, nickName);
+        if (result === "ERROR") {
+          button.innerHTML = "Check Failed";
+          button.style.backgroundColor = "rgb(60, 60, 60)";
         } else {
           const commonMatchId = Array.isArray(result) && result.length > 0 ? getMatchId(result[0]) : null;
           if (commonMatchId) {
-            button.textContent = "Match Details";
+            button.innerHTML = "Match Details";
             button.disabled = false;
+            button.style.backgroundColor = "rgb(255, 85, 0)";
             button.onclick = () => window.open(`https://www.faceit.com/en/cs2/room/${commonMatchId}`, "_blank");
           } else {
-            button.textContent = "No Matches Found";
+            button.innerHTML = "No Matches Found";
+            button.style.backgroundColor = "rgb(60, 60, 60)";
           }
         }
       } catch (error) {
-        button.textContent = "Error";
+        button.innerHTML = "Check Failed";
+        button.style.backgroundColor = "rgb(60, 60, 60)";
       }
     }
   });
