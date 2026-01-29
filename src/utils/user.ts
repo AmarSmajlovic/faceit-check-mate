@@ -51,7 +51,32 @@ export const getCurrentUserId = () => {
 export const isLoggedIn = () =>
   document.cookie.includes(" ab.storage.userId.") || !!getCurrentUserId();
 
+export const getAuthInfo = () => {
+    try {
+        const authData = localStorage.getItem("prefetched-auth");
+        if (authData) {
+            const auth = JSON.parse(authData);
+            return {
+                id: auth?.session?.entity?.id || null,
+                token: auth?.session?.token || null
+            };
+        }
+
+        // Fallbacks for ID
+        const legacyData = localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER");
+        const legacyId = legacyData ? JSON.parse(legacyData)?.value?.currentUser?.id : null;
+        
+        return {
+            id: legacyId || _getBetaUserId() || null,
+            token: localStorage.getItem("token") || null // Last resort
+        };
+    } catch (e) {
+        return { id: null, token: null };
+    }
+};
+
 const _getBetaUserId = () => {
+
   const cookies = document.cookie.split(";");
   const cookieContent = cookies
     .find((cookie) => cookie?.trim()?.startsWith("ab.storage.userId"))
@@ -63,14 +88,21 @@ const _getBetaUserId = () => {
   }
 };
 
+export const getMatchId = (match: Match): string | undefined => {
+  return (match as any).matchId || (match as any)._id?.matchId || (match as any).match_id;
+};
+
+
 export const findCommonMatches = (matches1: Match[], matches2: Match[]) => {
   if (!Array.isArray(matches1) || !Array.isArray(matches2)) {
     return [];
   }
   const matchIds1 = new Set(
-    matches1.map((match) => match.matchId || match._id?.matchId)
+    matches1.map((match) => getMatchId(match)).filter(Boolean)
   );
-  return matches2.filter((match) =>
-    matchIds1.has(match.matchId || match._id?.matchId)
-  );
+  return matches2.filter((match) => {
+    const id = getMatchId(match);
+    return id && matchIds1.has(id);
+  });
 };
+

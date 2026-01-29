@@ -1004,6 +1004,52 @@ var require_browser_polyfill = __commonJS((exports, module) => {
   });
 });
 
+// src/http/index.ts
+var import_webextension_polyfill = __toESM(require_browser_polyfill(), 1);
+
+// src/utils/user.ts
+var getAuthInfo = () => {
+  try {
+    const authData = localStorage.getItem("prefetched-auth");
+    if (authData) {
+      const auth = JSON.parse(authData);
+      return {
+        id: auth?.session?.entity?.id || null,
+        token: auth?.session?.token || null
+      };
+    }
+    const legacyData = localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER");
+    const legacyId = legacyData ? JSON.parse(legacyData)?.value?.currentUser?.id : null;
+    return {
+      id: legacyId || _getBetaUserId() || null,
+      token: localStorage.getItem("token") || null
+    };
+  } catch (e) {
+    return { id: null, token: null };
+  }
+};
+var _getBetaUserId = () => {
+  const cookies = document.cookie.split(";");
+  const cookieContent = cookies.find((cookie) => cookie?.trim()?.startsWith("ab.storage.userId"))?.split("=")?.[1];
+  if (cookieContent) {
+    const userId = JSON.parse(decodeURIComponent(cookieContent))?.g;
+    return userId;
+  }
+};
+var getMatchId = (match) => {
+  return match.matchId || match._id?.matchId || match.match_id;
+};
+var findCommonMatches = (matches1, matches2) => {
+  if (!Array.isArray(matches1) || !Array.isArray(matches2)) {
+    return [];
+  }
+  const matchIds1 = new Set(matches1.map((match) => getMatchId(match)).filter(Boolean));
+  return matches2.filter((match) => {
+    const id = getMatchId(match);
+    return id && matchIds1.has(id);
+  });
+};
+
 // node_modules/mimic-fn/index.js
 var copyProperty = (to, from, property, ignoreNonConfigurable) => {
   if (property === "length" || property === "prototype") {
@@ -1086,65 +1132,67 @@ function pMemoize(fn, { cacheKey = ([firstArgument]) => firstArgument, cache = n
 }
 
 // src/http/index.ts
-var import_webextension_polyfill = __toESM(require_browser_polyfill(), 1);
 var CACHE_TIME = 60000;
+var playerMatchResults = {};
+var activeFetches = {};
 var getPlayerMatches = (game, playerId, to) => fetchAPIMemoized(`/stats/v1/stats/time/users/${playerId}/games/${game}?to=${to}`);
 var getPlayerByNickname = (nickname) => fetchAPIMemoized(`/users/v1/nicknames/${nickname}`);
-var playerMatchResults = {};
-var fetchAllMatches = async (game, playerId, matchLimit = 4000, recursionLimit = 100, recursionLevel = 0, to = Date.now()) => {
+var fetchAllMatches = async (game, playerId, matchLimit = 6000, recursionLimit = 300, recursionLevel = 0, to = Date.now()) => {
   if (playerMatchResults[playerId]?.fetched) {
-    console.log(`Returning cached results for player ${playerId}`);
     return playerMatchResults[playerId].matches;
+  }
+  if (activeFetches[playerId]) {
+    return activeFetches[playerId];
   }
   if (!playerMatchResults[playerId]) {
     playerMatchResults[playerId] = { matches: [], fetched: false };
   }
   const matchResult = playerMatchResults[playerId];
-  if (recursionLevel >= recursionLimit) {
-    console.log(`Recursion limit reached for player ${playerId}`);
-    matchResult.fetched = true;
-    return matchResult.matches;
-  }
-  if (matchResult.matches.length >= matchLimit) {
-    console.log(`Match limit of ${matchLimit} reached for player ${playerId}`);
-    matchResult.fetched = true;
-    return matchResult.matches;
-  }
-  try {
-    const matches = await getPlayerMatches(game, playerId, to);
-    if (Array.isArray(matches) && matches.length > 0) {
-      const matchIds = new Set(matchResult.matches.map((match) => match.matchId));
-      const filteredMatches = matches.filter((match) => {
-        if (!match || !match.matchId || matchIds.has(match.matchId)) {
-          return false;
-        }
-        matchIds.add(match.matchId);
-        return true;
-      });
-      matchResult.matches = matchResult.matches.concat(filteredMatches);
-      const lastMatch = matches[matches.length - 1];
-      const lastMatchDate = lastMatch?.date;
-      if (!lastMatchDate || filteredMatches.length === 0) {
-        matchResult.fetched = true;
-        return matchResult.matches;
-      }
-      return fetchAllMatches(game, playerId, matchLimit, recursionLimit, recursionLevel + 1, lastMatchDate);
-    } else {
-      console.log(`No more matches available for player ${playerId}`);
+  const runFetch = async (currentTo, currentLevel) => {
+    if (currentLevel >= recursionLimit || matchResult.matches.length >= matchLimit) {
       matchResult.fetched = true;
       return matchResult.matches;
     }
-  } catch (error) {
-    console.error(`Error fetching matches for player ${playerId}:`, error);
-    return [];
+    try {
+      const matches = await getPlayerMatches(game, playerId, currentTo);
+      if (Array.isArray(matches) && matches.length > 0) {
+        const matchIds = new Set(matchResult.matches.map(getMatchId).filter(Boolean));
+        const filteredMatches = matches.filter((match) => {
+          const id = getMatchId(match);
+          if (!match || !id || matchIds.has(id))
+            return false;
+          matchIds.add(id);
+          return true;
+        });
+        matchResult.matches = matchResult.matches.concat(filteredMatches);
+        const lastMatchDate = matches[matches.length - 1]?.date;
+        if (!lastMatchDate || filteredMatches.length === 0) {
+          matchResult.fetched = true;
+          return matchResult.matches;
+        }
+        return runFetch(lastMatchDate, currentLevel + 1);
+      } else {
+        matchResult.fetched = true;
+        return matchResult.matches;
+      }
+    } catch (error) {
+      console.error(`Error in runFetch for ${playerId}:`, error);
+      return matchResult.matches;
+    }
+  };
+  activeFetches[playerId] = runFetch(to, recursionLevel);
+  try {
+    return await activeFetches[playerId];
+  } finally {
+    delete activeFetches[playerId];
   }
 };
 var fetchAPI = async (path) => {
   if (typeof path !== "string")
     return null;
   try {
-    const token = localStorage.getItem("token");
-    const response = await import_webextension_polyfill.default.runtime?.sendMessage({ path, token });
+    const auth = getAuthInfo();
+    const response = await import_webextension_polyfill.default.runtime?.sendMessage({ path, token: auth.token });
     const { result, code, payload } = response ?? {};
     if (result && result.toUpperCase() !== "OK" || code && code.toUpperCase() !== "OPERATION-OK") {
       throw new Error(JSON.stringify({ result, code, payload }));
@@ -1159,105 +1207,46 @@ var fetchAPIMemoized = pMemoize(fetchAPI, {
   maxAge: CACHE_TIME
 });
 
-// src/utils/user.ts
-var getCurrentUserId = () => {
-  try {
-    const legacyData = localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER");
-    if (legacyData) {
-      const legacyId = JSON.parse(legacyData)?.value?.currentUser?.id;
-      if (legacyId)
-        return legacyId;
-    }
-    const authData = localStorage.getItem("prefetched-auth");
-    if (authData) {
-      const auth = JSON.parse(authData);
-      if (auth?.session?.entity?.id)
-        return auth.session.entity.id;
-    }
-    for (const key in localStorage) {
-      try {
-        const isId1 = key.includes("ab.storage.userId.");
-        const isId2 = key.includes("ab.storage.attributes.");
-        const isId3 = key.includes("ab.storage.events.");
-        let id = null;
-        const item = localStorage.getItem(key);
-        if (!item)
-          continue;
-        if (isId1) {
-          id = JSON.parse(item)?.v?.g;
-        } else if (isId2) {
-          id = Object.keys(JSON.parse(item)?.v || {})?.[0];
-        } else if (isId3) {
-          id = JSON.parse(item)?.v?.[0]?.u;
-        }
-        if (id)
-          return id;
-      } catch (e) {
-        continue;
-      }
-    }
-    const betaId = _getBetaUserId();
-    if (betaId)
-      return betaId;
-  } catch (error) {
-    console.error("Error getting current user ID:", error);
-  }
-  return null;
-};
-var _getBetaUserId = () => {
-  const cookies = document.cookie.split(";");
-  const cookieContent = cookies.find((cookie) => cookie?.trim()?.startsWith("ab.storage.userId"))?.split("=")?.[1];
-  if (cookieContent) {
-    const userId = JSON.parse(decodeURIComponent(cookieContent))?.g;
-    return userId;
-  }
-};
-var findCommonMatches = (matches1, matches2) => {
-  if (!Array.isArray(matches1) || !Array.isArray(matches2)) {
-    return [];
-  }
-  const matchIds1 = new Set(matches1.map((match) => match.matchId || match._id?.matchId));
-  return matches2.filter((match) => matchIds1.has(match.matchId || match._id?.matchId));
-};
-
 // src/content.ts
 var checkPlayerMatches = async (id) => {
   try {
-    if (!id) {
+    if (!id)
       return null;
-    }
-    const matches = await fetchAllMatches("cs2", id);
-    if (!matches) {
-      return null;
-    }
-    return matches;
+    return await fetchAllMatches("cs2", id);
   } catch (error) {
     return null;
   }
 };
-var checkAndCompareMatches = async (bannedUserId) => {
+var checkAndCompareMatches = async (bannedUserId, nickName, onUpdate) => {
   try {
-    const currentUserId = getCurrentUserId();
-    const currentPlayerMatches = await checkPlayerMatches(currentUserId);
+    const auth = getAuthInfo();
+    if (!auth.id)
+      return "NOT_LOGGED_IN";
+    if (onUpdate)
+      onUpdate("Fetching Your History...");
+    const currentPlayerMatches = await checkPlayerMatches(auth.id);
+    if (!currentPlayerMatches)
+      return "MY_HISTORY_ERROR";
+    if (onUpdate)
+      onUpdate("Searching Their History...");
     const bannedPlayerMatches = await checkPlayerMatches(bannedUserId);
-    console.log(bannedPlayerMatches, bannedUserId);
-    if (!currentPlayerMatches || !bannedPlayerMatches) {
-      return;
-    }
-    const commonMatches = findCommonMatches(currentPlayerMatches, bannedPlayerMatches);
-    return commonMatches;
+    if (!bannedPlayerMatches)
+      return "BANNED_HISTORY_ERROR";
+    if (onUpdate)
+      onUpdate("Comparing Matches...");
+    const common = findCommonMatches(currentPlayerMatches, bannedPlayerMatches);
+    return common;
   } catch (error) {
-    throw error;
+    return "UNKNOWN_ERROR";
   }
 };
 var getPlayerByNick = async (nick) => {
   try {
-    const data = await getPlayerByNickname(nick);
-    return data;
+    return await getPlayerByNickname(nick);
   } catch (error) {
+    return null;
   }
 };
-console.log("Observer started...");
 var observer = new MutationObserver(async () => {
   const elements = document.querySelectorAll('[class*="NotificationContainer"]');
   elements.forEach(async (element) => {
@@ -1265,66 +1254,62 @@ var observer = new MutationObserver(async () => {
       const bodyElement = element.querySelector('[class*="Body"]');
       const strongElement = bodyElement?.querySelector("strong");
       const spanElement = bodyElement?.querySelector("span");
-      if (!spanElement?.textContent?.includes("banned")) {
-        return;
-      }
+      const isBanned = spanElement?.textContent?.includes("banned");
       const nickName = strongElement?.textContent?.trim();
-      if (nickName) {
-        element.setAttribute("data-processed", "true");
-        const button = document.createElement("button");
-        button.textContent = "Loading...";
-        button.style.borderRadius = "4px";
-        button.style.height = "32px";
-        button.style.padding = "8px 24px";
-        button.style.border = "none";
-        button.style.fontWeight = "bold";
-        button.style.color = "white";
-        button.style.cursor = "pointer";
-        button.style.textTransform = "uppercase";
+      if (!isBanned || !nickName)
+        return;
+      element.setAttribute("data-processed", "true");
+      const button = document.createElement("button");
+      button.textContent = "Checking...";
+      button.style.borderRadius = "4px";
+      button.style.height = "32px";
+      button.style.padding = "8px 24px";
+      button.style.border = "none";
+      button.style.fontWeight = "bold";
+      button.style.color = "white";
+      button.style.cursor = "pointer";
+      button.style.textTransform = "uppercase";
+      button.style.backgroundColor = "rgb(255, 85, 0)";
+      button.disabled = true;
+      button.style.marginTop = "10px";
+      button.addEventListener("mouseover", () => {
+        button.style.backgroundColor = "rgb(255, 120, 60)";
+      });
+      button.addEventListener("mouseout", () => {
         button.style.backgroundColor = "rgb(255, 85, 0)";
-        button.disabled = true;
-        button.addEventListener("mouseover", () => {
-          button.style.backgroundColor = "rgb(255, 120, 60)";
+      });
+      bodyElement?.insertAdjacentElement("beforeend", button);
+      try {
+        const bannedUser = await getPlayerByNick(nickName);
+        if (!bannedUser || !bannedUser.id) {
+          button.textContent = "User Not Found";
+          return;
+        }
+        const result = await checkAndCompareMatches(bannedUser.id, nickName, (text) => {
+          button.textContent = text;
         });
-        button.addEventListener("mouseout", () => {
-          button.style.backgroundColor = "rgb(255, 85, 0)";
-        });
-        button.style.marginTop = "10px";
-        bodyElement?.insertAdjacentElement("beforeend", button);
-        try {
-          const bannedUser = await getPlayerByNick(nickName);
-          if (!bannedUser || !bannedUser.id) {
-            console.error("Could not find banned user or ID for:", nickName);
-            button.textContent = "User Not Found";
-            button.disabled = true;
-            return;
-          }
-          console.log("Banned User ID:", bannedUser.id);
-          const commonMatches = await checkAndCompareMatches(bannedUser.id);
-          console.log("Common matches found:", commonMatches);
-          const commonMatchId = commonMatches?.[0]?.matchId;
+        if (result === "NOT_LOGGED_IN") {
+          button.textContent = "Log in to Faceit";
+        } else if (result === "MY_HISTORY_ERROR") {
+          button.textContent = "History Error";
+        } else if (result === "BANNED_HISTORY_ERROR") {
+          button.textContent = "User Private/Deleted";
+        } else if (result === "UNKNOWN_ERROR") {
+          button.textContent = "API Error";
+        } else {
+          const commonMatchId = Array.isArray(result) && result.length > 0 ? getMatchId(result[0]) : null;
           if (commonMatchId) {
-            const hrefLink = `https://www.faceit.com/en/cs2/room/${commonMatchId}`;
             button.textContent = "Match Details";
             button.disabled = false;
-            button.onclick = () => {
-              window.open(hrefLink, "_blank");
-            };
+            button.onclick = () => window.open(`https://www.faceit.com/en/cs2/room/${commonMatchId}`, "_blank");
           } else {
-            console.log("No common matches found for user:", nickName);
             button.textContent = "No Matches Found";
-            button.disabled = true;
           }
-        } catch (error) {
-          console.error("Error processing notification for", nickName, ":", error);
-          button.textContent = "Error";
-          button.disabled = true;
         }
+      } catch (error) {
+        button.textContent = "Error";
       }
     }
   });
 });
-observer.observe(document.body, {
-  childList: true,
-  subtree: true
-});
+observer.observe(document.body, { childList: true, subtree: true });

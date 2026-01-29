@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "FACEIT CheckMate",
-  "version": "1.1",
+  "version": "1.2",
   "description": "Find matches with banned FACEIT players instantly. Trace cheaters, see shared match history, and get your Elo context back.",
+
   "permissions": ["cookies"],
   "host_permissions": [
     "https://*.faceit.com/*",

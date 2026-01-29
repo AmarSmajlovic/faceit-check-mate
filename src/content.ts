@@ -1,154 +1,124 @@
 import { fetchAllMatches, getPlayerByNickname } from "./http";
-import { findCommonMatches, getCurrentUserId } from "./utils/user";
+import { findCommonMatches, getCurrentUserId, getMatchId, getAuthInfo } from "./utils/user";
+
+/**
+ * PRODUCTION READY - Version 1.2
+ */
+const DEBUG_MODE = false;
 
 const checkPlayerMatches = async (id: string) => {
   try {
-    if (!id) {
-      return null;
-    }
-
-    const matches = await fetchAllMatches("cs2", id);
-
-    if (!matches) {
-      return null;
-    }
-
-    return matches;
+    if (!id) return null;
+    return await fetchAllMatches("cs2", id);
   } catch (error) {
     return null;
   }
 };
 
-// Function to compare matches and update the DOM
-const checkAndCompareMatches = async (bannedUserId: string) => {
+const checkAndCompareMatches = async (bannedUserId: string, nickName: string, onUpdate?: (text: string) => void) => {
   try {
-    const currentUserId = getCurrentUserId();
+    const auth = getAuthInfo();
+    if (!auth.id) return "NOT_LOGGED_IN";
 
-    // Fetch matches for both players asynchronously
-    const currentPlayerMatches = await checkPlayerMatches(currentUserId);
+    if (onUpdate) onUpdate("Fetching Your History...");
+    const currentPlayerMatches = await checkPlayerMatches(auth.id);
+    if (!currentPlayerMatches) return "MY_HISTORY_ERROR";
+    
+    if (onUpdate) onUpdate("Searching Their History...");
     const bannedPlayerMatches = await checkPlayerMatches(bannedUserId);
-    console.log(bannedPlayerMatches, bannedUserId);
+    if (!bannedPlayerMatches) return "BANNED_HISTORY_ERROR";
 
-    if (!currentPlayerMatches || !bannedPlayerMatches) {
-      return;
-    }
-
-    const commonMatches = findCommonMatches(
-      currentPlayerMatches,
-      bannedPlayerMatches
-    );
-    return commonMatches;
+    if (onUpdate) onUpdate("Comparing Matches...");
+    const common = findCommonMatches(currentPlayerMatches, bannedPlayerMatches);
+    return common;
   } catch (error) {
-    throw error;
+    return "UNKNOWN_ERROR";
   }
 };
 
 const getPlayerByNick = async (nick: string) => {
   try {
-    const data = await getPlayerByNickname(nick);
-    return data;
-  } catch (error) {}
+    return await getPlayerByNickname(nick);
+  } catch (error) {
+    return null;
+  }
 };
-// This function will be responsible for handling the button inside each notification
-console.log("Observer started...");
 
 const observer = new MutationObserver(async () => {
-  const elements = document.querySelectorAll(
-    '[class*="NotificationContainer"]'
-  );
+  const elements = document.querySelectorAll('[class*="NotificationContainer"]');
 
   elements.forEach(async (element) => {
-    // Check if the element is already processed
     if (!element.hasAttribute("data-processed")) {
       const bodyElement = element.querySelector('[class*="Body"]');
       const strongElement = bodyElement?.querySelector("strong");
       const spanElement = bodyElement?.querySelector("span");
-      if (!spanElement?.textContent?.includes("banned")) {
-        return;
-      }
-
+      
+      const isBanned = spanElement?.textContent?.includes("banned");
       const nickName = strongElement?.textContent?.trim();
+      
+      // Only process actual banned notifications
+      if (!isBanned || !nickName) return;
 
-      if (nickName) {
-        // Mark the element as processed to prevent reprocessing
-        element.setAttribute("data-processed", "true");
+      element.setAttribute("data-processed", "true");
 
-        // Create the "Check Match" button and set the loading state
-        const button = document.createElement("button");
-        button.textContent = "Loading..."; // Set initial text to "Loading..."
-        button.style.borderRadius = "4px";
-        button.style.height = "32px";
-        button.style.padding = "8px 24px";
-        button.style.border = "none";
-        button.style.fontWeight = "bold";
-        button.style.color = "white";
-        button.style.cursor = "pointer";
-        button.style.textTransform = "uppercase";
+      const button = document.createElement("button");
+      button.textContent = "Checking..."; 
+      button.style.borderRadius = "4px";
+      button.style.height = "32px";
+      button.style.padding = "8px 24px";
+      button.style.border = "none";
+      button.style.fontWeight = "bold";
+      button.style.color = "white";
+      button.style.cursor = "pointer";
+      button.style.textTransform = "uppercase";
+      button.style.backgroundColor = "rgb(255, 85, 0)";
+      button.disabled = true;
+      button.style.marginTop = "10px";
+
+      button.addEventListener("mouseover", () => {
+        button.style.backgroundColor = "rgb(255, 120, 60)";
+      });
+      button.addEventListener("mouseout", () => {
         button.style.backgroundColor = "rgb(255, 85, 0)";
-        button.disabled = true; // Disable the button while loading
+      });
 
-        button.addEventListener("mouseover", () => {
-          // Set a lighter background color on hover
-          button.style.backgroundColor = "rgb(255, 120, 60)"; // Adjust to a lighter shade
-        });
+      bodyElement?.insertAdjacentElement("beforeend", button);
 
-        button.addEventListener("mouseout", () => {
-          // Reset the background color when not hovering
-          button.style.backgroundColor = "rgb(255, 85, 0)";
-        });
-        button.style.marginTop = "10px"; // Optional: Style the button
-
-        // Insert the button as the last child of the Body element
-        bodyElement?.insertAdjacentElement("beforeend", button);
-
-        try {
-          // Call the API to get the banned player details
-          const bannedUser = await getPlayerByNick(nickName);
-          
-          if (!bannedUser || !bannedUser.id) {
-            console.error("Could not find banned user or ID for:", nickName);
-            button.textContent = "User Not Found";
-            button.disabled = true;
-            return;
-          }
-
-          console.log("Banned User ID:", bannedUser.id);
-
-          // Fetch common matches (this may take some time)
-          const commonMatches = await checkAndCompareMatches(bannedUser.id);
-          console.log("Common matches found:", commonMatches);
-
-          // Ensure commonMatches is not empty and contains a valid matchId
-          const commonMatchId = commonMatches?.[0]?.matchId;
-
-          if (commonMatchId) {
-            const hrefLink = `https://www.faceit.com/en/cs2/room/${commonMatchId}`;
-
-            // Update button text and behavior
-            button.textContent = "Match Details"; // Set the button's label
-            button.disabled = false; // Enable the button
-            button.onclick = () => {
-              // Open the link in a new tab
-              window.open(hrefLink, "_blank");
-            };
-          } else {
-            // If no matches were found, update the button accordingly
-            console.log("No common matches found for user:", nickName);
-            button.textContent = "No Matches Found";
-            button.disabled = true;
-          }
-        } catch (error) {
-          // If there's an error in fetching matches, handle it
-          console.error("Error processing notification for", nickName, ":", error);
-          button.textContent = "Error";
-          button.disabled = true;
+      try {
+        const bannedUser = await getPlayerByNick(nickName);
+        
+        if (!bannedUser || !bannedUser.id) {
+          button.textContent = "User Not Found";
+          return;
         }
+
+        const result = await checkAndCompareMatches(bannedUser.id, nickName, (text) => {
+          button.textContent = text;
+        });
+
+        if (result === "NOT_LOGGED_IN") {
+          button.textContent = "Log in to Faceit";
+        } else if (result === "MY_HISTORY_ERROR") {
+          button.textContent = "History Error";
+        } else if (result === "BANNED_HISTORY_ERROR") {
+          button.textContent = "User Private/Deleted";
+        } else if (result === "UNKNOWN_ERROR") {
+          button.textContent = "API Error";
+        } else {
+          const commonMatchId = (Array.isArray(result) && result.length > 0) ? getMatchId(result[0]) : null;
+          if (commonMatchId) {
+            button.textContent = "Match Details";
+            button.disabled = false;
+            button.onclick = () => window.open(`https://www.faceit.com/en/cs2/room/${commonMatchId}`, "_blank");
+          } else {
+            button.textContent = "No Matches Found";
+          }
+        }
+      } catch (error) {
+        button.textContent = "Error";
       }
     }
   });
 });
 
-observer.observe(document.body, {
-  childList: true,
-  subtree: true,
-});
+observer.observe(document.body, { childList: true, subtree: true });
