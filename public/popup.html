@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FACEIT Check Mat</title>
+  <title>FACEIT Check Mate</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -14,27 +14,36 @@
       padding: 16px 24px;
       border-radius: 2px;
       color: rgb(167, 167, 167);
-      height: "auto";
-      overflow: hidden;
-      text-overflow: ellipsis;
       display: flex;
       flex-direction: column;
-      -webkit-box-align: center;
       align-items: center;
+      text-align: center;
     }
-  
+    .footer {
+      margin-top: 16px;
+      font-size: 12px;
+      color: rgb(100, 100, 100);
+      border-top: 1px solid rgb(50, 50, 50);
+      padding-top: 8px;
+      width: 100%;
+    }
+    a {
+        color: rgb(255, 85, 0);
+        text-decoration: none;
+    }
+    a:hover {
+        text-decoration: underline;
+    }
   </style>
 </head>
 <body>
-  <h3>FACEIT Check Mate</h3>
-  <p>
-    This extension enhances FACEIT notifications for banned users by adding a button to redirect you to common matches played with the banned player.
+  <h3 style="color: white; margin-bottom: 8px;">FACEIT Check Mate</h3>
+  <p style="font-size: 14px; line-height: 1.4;">
+    This extension enhances FACEIT notifications for banned users by adding a direct link to shared matches.
   </p>
-  <p>
-    For more information, visit the 
-    <a href="https://chrome.google.com/webstore/detail/faceit-check-mate" target="_blank">
-      extension page
-    </a>.
-  </p>
+  <div class="footer">
+    Created by <b>Picrone</b>
+  </div>
 </body>
+
 </html>
