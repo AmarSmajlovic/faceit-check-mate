@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "FACEIT CheckMate",
   "version": "1.2",
-  "description": "Find matches with banned FACEIT players instantly. Created by picrone.",
+  "description": "Find matches with banned FACEIT players instantly. Made with ❤️ by picrone",
 
 
   "permissions": ["cookies"],
