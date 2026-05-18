@@ -1317,7 +1317,7 @@ var observer = new MutationObserver(async () => {
       const isBanned = fullText.includes("banned");
       const strongElement = bodyElement?.querySelector("strong") ?? element.querySelector("strong");
       const nickNameFromText = strongElement?.textContent?.trim();
-      const profileAnchor = bodyElement?.querySelector('a[href*="/players/"]') ?? element.querySelector('a[href*="/players/"]');
+      const profileAnchor = element.closest('a[href*="/players/"]');
       const nickNameFromUrl = profileAnchor?.pathname?.split("/players/")?.[1]?.split("/")?.[0];
       const nickName = nickNameFromUrl || nickNameFromText;
       if (!isBanned || !nickName)

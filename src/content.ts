@@ -76,10 +76,9 @@ const observer = new MutationObserver(async () => {
       const strongElement = bodyElement?.querySelector("strong") ?? element.querySelector("strong");
       const nickNameFromText = strongElement?.textContent?.trim();
 
-      // If the player renamed after the report, the notification text shows the old name
-      // but FACEIT's profile link href contains the current name — use that when available
-      const profileAnchor = bodyElement?.querySelector<HTMLAnchorElement>('a[href*="/players/"]')
-        ?? element.querySelector<HTMLAnchorElement>('a[href*="/players/"]');
+      // The entire notification is wrapped in <a href="/en/players/CurrentNick">
+      // so we use closest() to walk up to that anchor — querySelector would miss it
+      const profileAnchor = element.closest<HTMLAnchorElement>('a[href*="/players/"]');
       const nickNameFromUrl = profileAnchor?.pathname?.split("/players/")?.[1]?.split("/")?.[0];
 
       const nickName = nickNameFromUrl || nickNameFromText;
