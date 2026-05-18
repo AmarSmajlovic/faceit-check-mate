@@ -53,25 +53,33 @@ export const isLoggedIn = () =>
 
 export const getAuthInfo = () => {
     try {
+        let token: string | null = null;
+        let id: string | null = null;
+
         const authData = localStorage.getItem("prefetched-auth");
         if (authData) {
             const auth = JSON.parse(authData);
-            return {
-                id: auth?.session?.entity?.id || null,
-                token: auth?.session?.token || null
-            };
+            id = auth?.session?.entity?.id || null;
+            token = auth?.session?.token || null;
         }
 
-        // Fallbacks for ID
-        const legacyData = localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER");
-        const legacyId = legacyData ? JSON.parse(legacyData)?.value?.currentUser?.id : null;
-        
-        return {
-            id: legacyId || _getBetaUserId() || null,
-            token: localStorage.getItem("token") || null // Last resort
-        };
+        if (!id) {
+            const legacyData = localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER");
+            id = legacyData ? JSON.parse(legacyData)?.value?.currentUser?.id : null;
+        }
+
+        // Use all fallbacks from getCurrentUserId if still no ID found
+        if (!id) {
+            id = getCurrentUserId();
+        }
+
+        if (!token) {
+            token = localStorage.getItem("token");
+        }
+
+        return { id, token };
     } catch (e) {
-        return { id: null, token: null };
+        return { id: getCurrentUserId(), token: null };
     }
 };
 

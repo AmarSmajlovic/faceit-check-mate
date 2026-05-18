@@ -67,18 +67,29 @@ const observer = new MutationObserver(async () => {
   elements.forEach(async (element) => {
     if (!element.hasAttribute("data-processed")) {
       const bodyElement = element.querySelector('[class*="Body"]');
-      const strongElement = bodyElement?.querySelector("strong");
-      const spanElement = bodyElement?.querySelector("span");
-      
-      const isBanned = spanElement?.textContent?.includes("banned");
-      const nickName = strongElement?.textContent?.trim();
-      
+
+      // Check for banned text across the whole notification body, not just first span
+      const fullText = bodyElement?.textContent || element.textContent || "";
+      const isBanned = fullText.includes("banned");
+
+      // Prefer the <strong> inside Body for the display nickname
+      const strongElement = bodyElement?.querySelector("strong") ?? element.querySelector("strong");
+      const nickNameFromText = strongElement?.textContent?.trim();
+
+      // If the player renamed after the report, the notification text shows the old name
+      // but FACEIT's profile link href contains the current name — use that when available
+      const profileAnchor = bodyElement?.querySelector<HTMLAnchorElement>('a[href*="/players/"]')
+        ?? element.querySelector<HTMLAnchorElement>('a[href*="/players/"]');
+      const nickNameFromUrl = profileAnchor?.pathname?.split("/players/")?.[1]?.split("/")?.[0];
+
+      const nickName = nickNameFromUrl || nickNameFromText;
+
       if (!isBanned || !nickName) return;
 
       element.setAttribute("data-processed", "true");
 
       const button = document.createElement("button");
-      button.innerHTML = '<span class="checkmate-spinner"></span>Searching...'; 
+      button.innerHTML = '<span class="checkmate-spinner"></span>Searching...';
       button.style.borderRadius = "4px";
       button.style.height = "32px";
       button.style.padding = "8px 16px";
@@ -105,22 +116,27 @@ const observer = new MutationObserver(async () => {
       bodyElement?.insertAdjacentElement("beforeend", button);
 
       try {
-        const bannedUser = await getPlayerByNick(nickName);
-        
-        if (!bannedUser || !bannedUser.id) {
-          button.innerHTML = "Check Failed";
+        // Try URL-based nickname first; if it fails and we have a different text nickname, retry with that
+        let bannedUser = await getPlayerByNick(nickName);
+        if ((!bannedUser || !bannedUser.id) && nickNameFromText && nickNameFromText !== nickName) {
+          bannedUser = await getPlayerByNick(nickNameFromText);
+        }
+        const bannedUserId = bannedUser?.id || bannedUser?.guid || bannedUser?.player_id || bannedUser?.userId;
+
+        if (!bannedUser || !bannedUserId) {
+          button.innerHTML = "Player Not Found";
           button.style.backgroundColor = "rgb(60, 60, 60)";
           return;
         }
 
-        const result = await checkAndCompareMatches(bannedUser.id, nickName);
+        const result = await checkAndCompareMatches(bannedUserId, nickName);
 
         if (result === "ERROR") {
-          button.innerHTML = "Check Failed";
+          button.innerHTML = "Auth Error";
           button.style.backgroundColor = "rgb(60, 60, 60)";
         } else {
           const commonMatchId = (Array.isArray(result) && result.length > 0) ? getMatchId(result[0]) : null;
-          
+
           if (commonMatchId) {
             button.innerHTML = "Match Details";
             button.disabled = false;

@@ -1008,24 +1008,73 @@ var require_browser_polyfill = __commonJS((exports, module) => {
 var import_webextension_polyfill = __toESM(require_browser_polyfill(), 1);
 
 // src/utils/user.ts
-var getAuthInfo = () => {
+var getCurrentUserId = () => {
   try {
+    const legacyData = localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER");
+    if (legacyData) {
+      const legacyId = JSON.parse(legacyData)?.value?.currentUser?.id;
+      if (legacyId)
+        return legacyId;
+    }
     const authData = localStorage.getItem("prefetched-auth");
     if (authData) {
       const auth = JSON.parse(authData);
-      return {
-        id: auth?.session?.entity?.id || null,
-        token: auth?.session?.token || null
-      };
+      if (auth?.session?.entity?.id)
+        return auth.session.entity.id;
     }
-    const legacyData = localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER");
-    const legacyId = legacyData ? JSON.parse(legacyData)?.value?.currentUser?.id : null;
-    return {
-      id: legacyId || _getBetaUserId() || null,
-      token: localStorage.getItem("token") || null
-    };
+    for (const key in localStorage) {
+      try {
+        const isId1 = key.includes("ab.storage.userId.");
+        const isId2 = key.includes("ab.storage.attributes.");
+        const isId3 = key.includes("ab.storage.events.");
+        let id = null;
+        const item = localStorage.getItem(key);
+        if (!item)
+          continue;
+        if (isId1) {
+          id = JSON.parse(item)?.v?.g;
+        } else if (isId2) {
+          id = Object.keys(JSON.parse(item)?.v || {})?.[0];
+        } else if (isId3) {
+          id = JSON.parse(item)?.v?.[0]?.u;
+        }
+        if (id)
+          return id;
+      } catch (e) {
+        continue;
+      }
+    }
+    const betaId = _getBetaUserId();
+    if (betaId)
+      return betaId;
+  } catch (error) {
+    console.error("Error getting current user ID:", error);
+  }
+  return null;
+};
+var getAuthInfo = () => {
+  try {
+    let token = null;
+    let id = null;
+    const authData = localStorage.getItem("prefetched-auth");
+    if (authData) {
+      const auth = JSON.parse(authData);
+      id = auth?.session?.entity?.id || null;
+      token = auth?.session?.token || null;
+    }
+    if (!id) {
+      const legacyData = localStorage.getItem("C_UCURRENT_USER.data.CURRENT_USER");
+      id = legacyData ? JSON.parse(legacyData)?.value?.currentUser?.id : null;
+    }
+    if (!id) {
+      id = getCurrentUserId();
+    }
+    if (!token) {
+      token = localStorage.getItem("token");
+    }
+    return { id, token };
   } catch (e) {
-    return { id: null, token: null };
+    return { id: getCurrentUserId(), token: null };
   }
 };
 var _getBetaUserId = () => {
@@ -1264,10 +1313,13 @@ var observer = new MutationObserver(async () => {
   elements.forEach(async (element) => {
     if (!element.hasAttribute("data-processed")) {
       const bodyElement = element.querySelector('[class*="Body"]');
-      const strongElement = bodyElement?.querySelector("strong");
-      const spanElement = bodyElement?.querySelector("span");
-      const isBanned = spanElement?.textContent?.includes("banned");
-      const nickName = strongElement?.textContent?.trim();
+      const fullText = bodyElement?.textContent || element.textContent || "";
+      const isBanned = fullText.includes("banned");
+      const strongElement = bodyElement?.querySelector("strong") ?? element.querySelector("strong");
+      const nickNameFromText = strongElement?.textContent?.trim();
+      const profileAnchor = bodyElement?.querySelector('a[href*="/players/"]') ?? element.querySelector('a[href*="/players/"]');
+      const nickNameFromUrl = profileAnchor?.pathname?.split("/players/")?.[1]?.split("/")?.[0];
+      const nickName = nickNameFromUrl || nickNameFromText;
       if (!isBanned || !nickName)
         return;
       element.setAttribute("data-processed", "true");
@@ -1298,15 +1350,19 @@ var observer = new MutationObserver(async () => {
       });
       bodyElement?.insertAdjacentElement("beforeend", button);
       try {
-        const bannedUser = await getPlayerByNick(nickName);
-        if (!bannedUser || !bannedUser.id) {
-          button.innerHTML = "Check Failed";
+        let bannedUser = await getPlayerByNick(nickName);
+        if ((!bannedUser || !bannedUser.id) && nickNameFromText && nickNameFromText !== nickName) {
+          bannedUser = await getPlayerByNick(nickNameFromText);
+        }
+        const bannedUserId = bannedUser?.id || bannedUser?.guid || bannedUser?.player_id || bannedUser?.userId;
+        if (!bannedUser || !bannedUserId) {
+          button.innerHTML = "Player Not Found";
           button.style.backgroundColor = "rgb(60, 60, 60)";
           return;
         }
-        const result = await checkAndCompareMatches(bannedUser.id, nickName);
+        const result = await checkAndCompareMatches(bannedUserId, nickName);
         if (result === "ERROR") {
-          button.innerHTML = "Check Failed";
+          button.innerHTML = "Auth Error";
           button.style.backgroundColor = "rgb(60, 60, 60)";
         } else {
           const commonMatchId = Array.isArray(result) && result.length > 0 ? getMatchId(result[0]) : null;
